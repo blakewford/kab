@@ -7,8 +7,12 @@
 #include <byteswap.h>
 #include <arpa/inet.h>
 
-#include <list>
 #include <mutex>
+#include <vector>
+#include <fstream>
+#include <sstream>
+
+#include "parser.h"
 
 #define DISCOVER_PORT1             25
 #define DISCOVER_PORT2           5888
@@ -73,7 +77,7 @@ struct command
 bool gKeepGoing = true;
 std::mutex gResponseMutex;
 pthread_t gRecvP1, gRecvP2;
-std::list<response> gFound;
+std::vector<response> gFound;
 
 struct broadcastParams
 {
@@ -119,24 +123,26 @@ void initializeCommand(command& c)
     c.op      = 2;
 }
 
-void toggle(const char* address, bool on)
+void toggle(size_t ndx, bool on)
 {
+    response r = gFound.at(ndx);
+
     srand(time(nullptr));
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    struct sockaddr_in target = buildServerType(inet_addr(address), COMMAND_PORT);
+    struct sockaddr_in target = buildServerType(inet_addr(r.ip), COMMAND_PORT);
 
     command toggle;
     initializeCommand(toggle);
 
     toggle.id = rand();
-    memcpy(toggle.model, gFound.front().model, 32);
+    memcpy(toggle.model, r.model, 32);
     toggle.value = on;
 
     ssize_t sent = sendto(sock, &toggle, sizeof(command), 0, (sockaddr*)&target, sizeof(target));
     close(sock);
 }
 
-void printTargets()
+void printTargets(bool cache)
 {
     printf("Found (%zd)\n", gFound.size());
 
@@ -145,6 +151,12 @@ void printTargets()
     while(iter != gFound.end())
     {
         printf("[%d] %s\n", count, iter->name);
+        if(cache)
+        {
+            FILE* json = fopen("cache.json", "a");
+            fprintf(json, "{\"name\":\"%s\",\"parameters\":{\"ip\":\"%s\",\"model\":\"%s\"}}\n", iter->name, iter->ip, iter->model);
+            fclose(json);
+        }
         count++;
         iter++;
     }
@@ -156,7 +168,7 @@ void quit(int sock)
     pthread_join(gRecvP1, nullptr);
     pthread_join(gRecvP1, nullptr);
 
-    printTargets();
+    printTargets(true);
 
     close(sock);
 }
@@ -249,12 +261,37 @@ void discover()
     quit(sock);
 }
 
+void addCachedTarget(set_target& t)
+{
+    response r;
+    memcpy(r.name, t.get_name(), strlen(t.get_name()));
+    memcpy(r.ip, t.get_ip(), strlen(t.get_ip()));
+    memcpy(r.model, t.get_model(), strlen(t.get_model()));
+    gFound.push_back(r);
+}
+
 int main(int argc, char **argv)
 {
     FILE* cache = fopen("cache.json", "r");
     if(cache != nullptr)
     {
-        printTargets();
+        fclose(cache);
+        std::ifstream sample("cache.json");
+
+        set_target t;
+        std::string line;
+        std::getline(sample, line);
+        std::istringstream iss(line);
+        parse(line.c_str(), &t);
+        addCachedTarget(t);
+        while(std::getline(sample, line))
+        {
+            std::istringstream iss(line);
+            parse(line.c_str(), &t);
+            addCachedTarget(t);
+        }
+
+        printTargets(false);
     }
     else
     {
