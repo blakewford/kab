@@ -264,6 +264,8 @@ void discover()
 void addCachedTarget(set_target& t)
 {
     response r;
+    memset(&r, '\0', RESPONSE_SIZE);
+
     memcpy(r.name, t.get_name(), strlen(t.get_name()));
     memcpy(r.ip, t.get_ip(), strlen(t.get_ip()));
     memcpy(r.model, t.get_model(), strlen(t.get_model()));

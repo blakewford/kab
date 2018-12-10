@@ -85,6 +85,7 @@ void target::populate(container_object* obj)
                 break;
             case STRING:
                 assert(!strcmp("name", child->get_name()));
+                memset(m_name, '\0', MAX_BUFFER_SIZE);
                 memcpy(m_name, child->get_string_value(), strlen(child->get_string_value()));
                 break;
             case CONTAINER:
