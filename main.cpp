@@ -10,15 +10,20 @@
 #include <list>
 #include <mutex>
 
-#define PORT1                      25
-#define PORT2                    5888
+#define DISCOVER_PORT1             25
+#define DISCOVER_PORT2           5888
+#define COMMAND_PORT               80
+
 #define QUERY_SIZE                128
 #define RESPONSE_SIZE             408
 #define ATTTEMPTS                  14
 #define TIMEOUT          10*1000*1000
 
+#define MODIFY_SWITCH          327702
+
 uint8_t query[QUERY_SIZE];
 
+#pragma pack(push, 1)
 struct response
 {
     uint32_t unknown;
@@ -44,6 +49,26 @@ struct response
         return l.port < r.port;
     }
 };
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+struct command
+{
+    uint32_t cmd;
+    uint32_t id;
+    uint16_t type;
+    uint8_t  version[6];
+    char     model[32];
+    char     name[32];
+    char     serial[32];
+    uint32_t status;
+    uint32_t counter;
+    uint32_t unknown;
+    uint32_t id2;
+    uint8_t  op;
+    uint8_t  value;
+};
+#pragma pack(pop)
 
 bool gKeepGoing = true;
 std::mutex gResponseMutex;
@@ -56,13 +81,13 @@ struct broadcastParams
     uint16_t port;
 };
 
-struct sockaddr_in buildServerType(in_port_t port)
+struct sockaddr_in buildServerType(in_addr_t address, in_port_t port)
 {
     struct sockaddr_in server;
     memset(&server, '\0', sizeof(server));
 
     server.sin_family = AF_INET;
-    server.sin_addr.s_addr = INADDR_BROADCAST;
+    server.sin_addr.s_addr = address;
     server.sin_port = htons(port);
 
     return server;
@@ -84,19 +109,55 @@ void buildQuery()
     query[29] = now & 0x00FF;
 }
 
+void initializeCommand(command& c)
+{
+    memset(&c, '\0', sizeof(command));
+
+    c.cmd     = MODIFY_SWITCH;
+    c.counter = 0x55555555;
+    c.type    = 2;
+    c.op      = 2;
+}
+
+void toggle(const char* address, bool on)
+{
+    srand(time(nullptr));
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    struct sockaddr_in target = buildServerType(inet_addr(address), COMMAND_PORT);
+
+    command toggle;
+    initializeCommand(toggle);
+
+    toggle.id = rand();
+    memcpy(toggle.model, gFound.front().model, 32);
+    toggle.value = on;
+
+    ssize_t sent = sendto(sock, &toggle, sizeof(command), 0, (sockaddr*)&target, sizeof(target));
+    close(sock);
+}
+
+void printTargets()
+{
+    printf("Found (%zd)\n", gFound.size());
+
+    int32_t count = 0;
+    auto iter = gFound.begin();
+    while(iter != gFound.end())
+    {
+        printf("[%d] %s\n", count, iter->name);
+        count++;
+        iter++;
+    }
+}
+
 void quit(int sock)
 {
     gKeepGoing = false;
     pthread_join(gRecvP1, nullptr);
     pthread_join(gRecvP1, nullptr);
 
-    printf("Found %zd\n", gFound.size());
-    auto iter = gFound.begin();
-    while(iter != gFound.end())
-    {
-        printf("%s\n", iter->name);
-        iter++;
-    }
+    printTargets();
+
     close(sock);
 }
 
@@ -116,7 +177,7 @@ void* recvBroadcast(void* arg)
 {
     broadcastParams* params = (broadcastParams*)arg;
 
-    struct sockaddr_in server = buildServerType(params->port);
+    struct sockaddr_in server = buildServerType(INADDR_BROADCAST, params->port);
 
     response target;
     socklen_t length;
@@ -149,22 +210,22 @@ void* recvBroadcast(void* arg)
     return nullptr;
 }
 
-int main(int argc, char **argv)
+void discover()
 {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if(sock < 0) return -1;
+    if(sock < 0) return;
 
     int32_t broadcast = 1;
     int ret = setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
-    if(ret != 0) return -1;
+    if(ret != 0) return;
 
-    struct sockaddr_in server = buildServerType(PORT1);
+    struct sockaddr_in server = buildServerType(INADDR_BROADCAST, DISCOVER_PORT1);
 
     broadcastParams params1;
     params1.socket = sock;
-    params1.port = PORT1;
+    params1.port = DISCOVER_PORT1;
     broadcastParams params2 = params1;
-    params2.port = PORT2;
+    params2.port = DISCOVER_PORT2;
 
     pthread_t watchDog;
     pthread_create(&gRecvP1,  nullptr, recvBroadcast, &params1);
@@ -178,7 +239,7 @@ int main(int argc, char **argv)
     while(sent == QUERY_SIZE && count < ATTTEMPTS && gKeepGoing)
     {
         count++;
-        server.sin_port = server.sin_port == htons(PORT1) ? htons(PORT2): htons(PORT1);
+        server.sin_port = server.sin_port == htons(DISCOVER_PORT1) ? htons(DISCOVER_PORT2): htons(DISCOVER_PORT1);
         usleep(1000*72);
         buildQuery();
 
@@ -186,6 +247,20 @@ int main(int argc, char **argv)
     }
 
     quit(sock);
+}
+
+int main(int argc, char **argv)
+{
+    FILE* cache = fopen("cache.json", "r");
+    if(cache != nullptr)
+    {
+        printTargets();
+    }
+    else
+    {
+        printf("Starting discovery...\n");
+        discover();
+    }
  
     return 0;
 }
