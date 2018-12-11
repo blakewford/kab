@@ -11,6 +11,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
 #include "parser.h"
 
@@ -293,7 +294,25 @@ int main(int argc, char **argv)
             addCachedTarget(t);
         }
 
+        int32_t selection = -1;
         printTargets(false);
+        printf("[%zu] \u001b[31mCancel\u001b[0m\n", gFound.size());
+        printf("\nChoose device:\n");
+        std::cin >> selection;
+
+        if(selection >=0 && selection < gFound.size())
+        {
+            size_t ndx = selection;
+            printf("\nSwitch \u001b[34m%s\u001b[0m:\n", gFound.at(ndx).name);
+            printf("[0] OFF\n");
+            printf("[1] ON\n");
+            printf("[2] \u001b[31mCancel\u001b[0m\n");
+            std::cin >> selection;
+            if(selection >=0 && selection < 2)
+            {
+                toggle(ndx, selection ? true: false);
+            }
+        }
     }
     else
     {
