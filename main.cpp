@@ -19,6 +19,8 @@
 #define DISCOVER_PORT2           5888
 #define COMMAND_PORT               80
 
+#define DISCOVER_WEMO            1900
+
 #define QUERY_SIZE                128
 #define RESPONSE_SIZE             408
 #define ATTTEMPTS                  14
@@ -258,6 +260,40 @@ void discover()
 
         sent = sendto(sock, query, QUERY_SIZE, 0, (sockaddr*)&server, sizeof(server));
     }
+
+    quit(sock);
+}
+
+void discoverWemo()
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if(sock < 0) return;
+
+    int32_t broadcast = 1;
+    int ret = setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
+    if(ret != 0) return;
+
+    struct sockaddr_in server = buildServerType(inet_addr("239.255.255.250"), DISCOVER_WEMO);
+    server.sin_port = htons(DISCOVER_WEMO);
+
+    broadcastParams params1;
+    params1.socket = sock;
+    params1.port = DISCOVER_WEMO;
+
+    pthread_t watchDog;
+    pthread_create(&gRecvP1,  nullptr, recvBroadcast, &params1);
+    pthread_create(&watchDog, nullptr, timeoutThread, &sock);
+
+    const char* packet =
+"M-SEARCH * HTTP/1.1\r\n"\
+"HOST: 239.255.255.250:1900\r\n"\
+"MAN: \"ssdp:discover\"\r\n"\
+"MX: 10\r\n"\
+//"ST: ssdp:all\r\n";
+"ST: urn:Belkin:device:controllee:1\r\n\r\n";
+
+    ssize_t sent = sendto(sock, packet, strlen(packet), 0, (sockaddr*)&server, sizeof(server));
+    usleep(1000*1000*1);
 
     quit(sock);
 }
