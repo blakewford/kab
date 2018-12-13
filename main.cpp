@@ -15,18 +15,19 @@
 
 #include "parser.h"
 
-#define DISCOVER_PORT1             25
-#define DISCOVER_PORT2           5888
-#define COMMAND_PORT               80
+#define DISCOVER_PORT1                 25
+#define DISCOVER_PORT2               5888
+#define COMMAND_PORT                   80
 
-#define DISCOVER_WEMO            1900
+#define DISCOVER_WEMO                1900
 
-#define QUERY_SIZE                128
-#define RESPONSE_SIZE             408
-#define ATTTEMPTS                  14
-#define TIMEOUT          10*1000*1000
+#define QUERY_SIZE                    128
+#define RESPONSE_SIZE                 408
+#define ATTTEMPTS                      14
+#define TIMEOUT              10*1000*1000
 
-#define MODIFY_SWITCH          327702
+#define MODIFY_SWITCH              327702
+#define SSDP             "239.255.255.250"
 
 uint8_t query[QUERY_SIZE];
 
@@ -273,7 +274,7 @@ void discoverWemo()
     int ret = setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
     if(ret != 0) return;
 
-    struct sockaddr_in server = buildServerType(inet_addr("239.255.255.250"), DISCOVER_WEMO);
+    struct sockaddr_in server = buildServerType(inet_addr(SSDP), DISCOVER_WEMO);
     server.sin_port = htons(DISCOVER_WEMO);
 
     broadcastParams params1;
@@ -296,6 +297,36 @@ void discoverWemo()
     usleep(1000*1000*1);
 
     quit(sock);
+}
+
+void wemoResponse()
+{
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if(sock < 0) return;
+
+    struct sockaddr_in server = buildServerType(INADDR_ANY, DISCOVER_WEMO);
+    if(bind(sock, (struct sockaddr*)&server, sizeof(server)) < 0) return;
+
+    struct ip_mreq group;
+    group.imr_multiaddr.s_addr = inet_addr(SSDP);
+    int ret = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*)&group, sizeof(group));
+    if(ret != 0) return;
+
+    pthread_t watchDog;
+    pthread_create(&watchDog, nullptr, timeoutThread, &sock);
+
+    socklen_t length;
+    char buffer[RESPONSE_SIZE];
+    while(gKeepGoing)
+    {
+        ssize_t recv = recvfrom(sock, buffer, RESPONSE_SIZE, 0, (sockaddr*)&server, &length);
+        std::string search(buffer);
+        if(search.find("Belkin") != std::string::npos)
+        {
+            inet_ntop(AF_INET, &server.sin_addr, buffer, INET_ADDRSTRLEN);
+            printf("%s %d\n", buffer, server.sin_port);
+        }
+    }
 }
 
 void addCachedTarget(set_target& t)
