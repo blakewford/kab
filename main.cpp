@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <byteswap.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 
 #include <mutex>
@@ -25,6 +26,7 @@
 #define RESPONSE_SIZE                 408
 #define ATTTEMPTS                      14
 #define TIMEOUT              10*1000*1000
+#define WEMO_TIMEOUT        120*1000*1000
 
 #define MODIFY_SWITCH              327702
 #define SSDP             "239.255.255.250"
@@ -315,16 +317,40 @@ void wemoResponse()
     pthread_t watchDog;
     pthread_create(&watchDog, nullptr, timeoutThread, &sock);
 
+    const char* packet =
+"HTTP/1.1 200 OK\r\n"\
+"CACHE-CONTROL: max-age=86400\r\n"\
+"DATE: %s, %02d %s %d %02d:%02d:%02d %s\r\n"\
+"EXT:\r\n"\
+"LOCATION: http://%s:49153/setup.xml\r\n"\
+"OPT: \"http://schemas.upnp.org/upnp/1/0/\"; ns=01\r\n"\
+"01-NLS: 11111111-2222-3333-4444-555555555555\r\n"\
+"SERVER: Unspecified, UPnP/1.0, Unspecified\r\n"\
+"X-User-Agent: redsonic\r\n"\
+"ST: urn:Belkin:device:controllee:1\r\n"\
+"USN: uuid:Socket-1_0-2GTbor5wqtq79E::urn:Belkin:device:controllee:1\r\n\r\n";
+
+    struct timeval now;
+    gettimeofday(&now, nullptr);
+    struct tm* gmt = gmtime(&now.tv_sec);
+
+    const char* DAYS[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    const char* MONTHS[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
     socklen_t length;
     char buffer[RESPONSE_SIZE];
     while(gKeepGoing)
     {
         ssize_t recv = recvfrom(sock, buffer, RESPONSE_SIZE, 0, (sockaddr*)&server, &length);
         std::string search(buffer);
-        if(search.find("Belkin") != std::string::npos)
+//        if(search.find("Belkin") != std::string::npos)
         {
             inet_ntop(AF_INET, &server.sin_addr, buffer, INET_ADDRSTRLEN);
             printf("%s %d\n", buffer, server.sin_port);
+
+            int reply = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            sendto(reply, packet, strlen(packet), 0, (sockaddr*)&server, sizeof(server));
+            close(reply);
         }
     }
 }
