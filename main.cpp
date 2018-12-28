@@ -49,7 +49,7 @@ struct response
     uint8_t  zipcode[12];
     char     p2pm[16];
     char     p2ps[16];
-    char     paw[16];        
+    char     paw[16];
     uint32_t unknown4[12];
     char     mac[18];
     char     ip[18];
@@ -381,17 +381,19 @@ void loop()
     if(write(fd, "in", 2) < 0) return;
     close(fd);
 
-    fd = open("/sys/class/gpio/gpio24/value", O_RDONLY);
-    if(fd < 0) return;
-
     char valueString[3];
+    fd = open("/sys/class/gpio/gpio24/value", O_RDONLY);
     while(read(fd, valueString, 3) > 0)
     {
-        printf("%d\n", atoi(valueString));
-        usleep(1000*1000);
-    }
+        close(fd);
 
-    close(fd);
+        int32_t value = atoi(valueString);
+        printf("%d\n", value);
+        toggle(0, value ? true: false);
+        usleep(1000*1000);
+        fd = open("/sys/class/gpio/gpio24/value", O_RDONLY);
+        if(fd < 0) return;
+    }
 }
 
 int main(int argc, char **argv)
@@ -400,6 +402,7 @@ int main(int argc, char **argv)
     if(cache != nullptr)
     {
         fclose(cache);
+
         std::ifstream sample("cache.json");
 
         set_target t;
@@ -413,6 +416,12 @@ int main(int argc, char **argv)
             std::istringstream iss(line);
             parse(line.c_str(), &t);
             addCachedTarget(t);
+        }
+
+        if(argc > 1)
+        {
+            loop();
+            return 0;
         }
 
         int32_t selection = -1;
