@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -366,6 +367,33 @@ void addCachedTarget(set_target& t)
     gFound.push_back(r);
 }
 
+void loop()
+{
+    int fd = open("/sys/class/gpio/export", O_WRONLY);
+    if(fd < 0) return;
+
+    size_t written = write(fd, "24", 2);
+    close(fd);
+
+    fd = open("/sys/class/gpio/gpio24/direction", O_WRONLY);
+    if(fd < 0) return;
+
+    if(write(fd, "in", 2) < 0) return;
+    close(fd);
+
+    fd = open("/sys/class/gpio/gpio24/value", O_RDONLY);
+    if(fd < 0) return;
+
+    char valueString[3];
+    while(read(fd, valueString, 3) > 0)
+    {
+        printf("%d\n", atoi(valueString));
+        usleep(1000*1000);
+    }
+
+    close(fd);
+}
+
 int main(int argc, char **argv)
 {
     FILE* cache = fopen("cache.json", "r");
@@ -399,11 +427,23 @@ int main(int argc, char **argv)
             printf("\nSwitch \u001b[34m%s\u001b[0m:\n", gFound.at(ndx).name);
             printf("[0] OFF\n");
             printf("[1] ON\n");
-            printf("[2] \u001b[31mCancel\u001b[0m\n");
+            printf("[2] Listen\n");
+            printf("[3] \u001b[31mCancel\u001b[0m\n");
             std::cin >> selection;
-            if(selection >=0 && selection < 2)
+            if(selection >=0 && selection < 3)
             {
-                toggle(ndx, selection ? true: false);
+                switch(selection)
+                {
+                    case 0:
+                    case 1:
+                        toggle(ndx, selection ? true: false);
+                        break;
+                    case 2:
+                        loop();
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
